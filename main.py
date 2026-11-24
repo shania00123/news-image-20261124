@@ -1,47 +1,50 @@
 #!/usr/bin/env python3
-"""Entrypoint for news-image-20261124: THE TUESDAY LEDGER.
+"""news-image-20261124 v2 — entrypoint.
 
-The poster is drawn by render.py (PIL, no network) and committed as
-poster.png. This entrypoint only copies that committed image to
-$MAKEFUN_OUTPUT_DIR/entry.png, after checking it is a whole PNG of the
-right size. Stdlib only, so it runs in the grader's sandbox as-is.
+Copies the poster this repository ships (poster.png, drawn by render.py)
+to the output directory as entry.png. Standard library only, no network,
+no randomness: two runs write identical bytes.
+
+The output directory is $MAKEFUN_OUTPUT_DIR when set, else /output.
+It is never a relative folder: the grader reads /output/entry.png.
 """
+
 import os
-import shutil
+import struct
 import sys
 
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-EXPECTED_SIZE = (1024, 1024)
-MAX_BYTES = 1_048_576
-
-
-def fail(message):
-    print("main.py: " + message, file=sys.stderr)
-    raise SystemExit(1)
+HERE = os.path.dirname(os.path.abspath(__file__))
+POSTER = os.path.join(HERE, "poster.png")
+MAX_BYTES = 1048576
 
 
 def main():
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "out")
+    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
+    with open(POSTER, "rb") as fh:
+        data = fh.read()
+    if len(data) > MAX_BYTES:
+        print("poster.png is %d bytes, over the 1 MiB limit" % len(data),
+              file=sys.stderr)
+        return 1
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        print("poster.png is not a PNG", file=sys.stderr)
+        return 1
+    width, height = struct.unpack(">II", data[16:24])
+    if (width, height) != (1024, 1024):
+        print("poster.png is %dx%d, expected 1024x1024" % (width, height),
+              file=sys.stderr)
+        return 1
     os.makedirs(out_dir, exist_ok=True)
-    here = os.path.dirname(os.path.abspath(__file__))
-    src = os.path.join(here, "poster.png")
-    dst = os.path.join(out_dir, "entry.png")
-
-    with open(src, "rb") as fh:
-        head = fh.read(33)
-    if not head.startswith(PNG_MAGIC):
-        fail("poster.png is not a PNG")
-    width = int.from_bytes(head[16:20], "big")
-    height = int.from_bytes(head[20:24], "big")
-    if (width, height) != EXPECTED_SIZE:
-        fail(f"poster.png is {width}x{height}, expected 1024x1024")
-    if os.path.getsize(src) > MAX_BYTES:
-        fail("poster.png exceeds 1 MiB")
-
-    if os.path.abspath(src) != os.path.abspath(dst):
-        shutil.copyfile(src, dst)
-    print("wrote " + dst)
+    target = os.path.join(out_dir, "entry.png")
+    with open(target, "wb") as fh:
+        fh.write(data)
+    with open(target, "rb") as fh:
+        if fh.read() != data:
+            print("read-back mismatch on %s" % target, file=sys.stderr)
+            return 1
+    print("wrote %s (%d bytes)" % (target, len(data)))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
